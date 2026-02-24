@@ -29,31 +29,43 @@ async function generateImage(prompt, style = "none") {
 
     const page = await browser.newPage();
     
-    // Page load with longer timeout
+    console.log("🌐 Navigating to Perchance...");
     await page.goto('https://perchance.org/ai-text-to-image-generator', { 
       waitUntil: 'domcontentloaded', 
       timeout: 90000 
     });
 
-    await page.waitForTimeout(10000); // 10 seconds extra wait for full load
+    await page.waitForTimeout(12000); // 12 seconds full load
 
-    // Specific selector + visibility check
-    const inputSelector = 'textarea#input';
-    await page.waitForSelector(inputSelector, { timeout: 30000, state: 'visible' });
+    console.log("🔍 Looking for input field...");
 
-    // Scroll + Click to focus
-    await page.locator(inputSelector).scrollIntoViewIfNeeded();
-    await page.locator(inputSelector).click();
-    
-    // Now fill
-    await page.locator(inputSelector).fill(finalPrompt);
+    // Direct JS injection (যদি visible না হয় তাও কাজ করবে)
+    const success = await page.evaluate((text) => {
+      const textarea = document.querySelector('textarea#input') || 
+                      document.querySelector('textarea') || 
+                      document.querySelector('input[type="text"]');
+      
+      if (!textarea) return false;
 
-    // Click Generate button
-    await page.click('button:has-text("Generate"), button:has-text("Create")', { timeout: 15000 });
+      textarea.value = text;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.dispatchEvent(new Event('change', { bubbles: true }));
+      
+      return true;
+    }, finalPrompt);
 
-    // Wait for image
+    if (!success) throw new Error("Input field not found");
+
+    console.log("✅ Prompt injected successfully");
+
+    // Generate button click
+    await page.waitForTimeout(3000);
+    await page.click('button:has-text("Generate"), button:has-text("Create"), button:has-text("Make")');
+
+    console.log("⏳ Waiting for image...");
+
     await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
-      timeout: 120000 
+      timeout: 150000 
     });
 
     const imageUrl = await page.evaluate(() => {
@@ -62,6 +74,8 @@ async function generateImage(prompt, style = "none") {
     });
 
     await browser.close();
+
+    if (!imageUrl) throw new Error("No image URL");
 
     return { success: true, imageUrl, prompt: finalPrompt };
 
@@ -80,7 +94,7 @@ app.get('/imagine', async (req, res) => {
     return res.status(400).json({ success: false, error: "Prompt is required" });
   }
 
-  console.log(`Generating: ${prompt} | Style: ${style}`);
+  console.log(`🎨 Generating: ${prompt} | Style: ${style}`);
 
   try {
     const result = await generateImage(prompt, style);
@@ -89,12 +103,12 @@ app.get('/imagine', async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Try again in 30 seconds (site slow)"
+      message: "Try again in 30 seconds"
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API Running (Fixed Version)'));
+app.get('/', (req, res) => res.send('✅ Perchance API v4 Running'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
