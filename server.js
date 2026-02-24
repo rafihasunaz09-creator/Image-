@@ -35,34 +35,45 @@ async function generateImage(prompt, style = "none") {
       timeout: 90000 
     });
 
-    await page.waitForTimeout(12000); // 12 seconds full load
+    await page.waitForTimeout(12000);
 
-    console.log("🔍 Looking for input field...");
-
-    // Direct JS injection (যদি visible না হয় তাও কাজ করবে)
-    const success = await page.evaluate((text) => {
-      const textarea = document.querySelector('textarea#input') || 
-                      document.querySelector('textarea') || 
-                      document.querySelector('input[type="text"]');
-      
-      if (!textarea) return false;
-
-      textarea.value = text;
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      textarea.dispatchEvent(new Event('change', { bubbles: true }));
-      
+    console.log("🔍 Injecting prompt...");
+    const injected = await page.evaluate((text) => {
+      const ta = document.querySelector('textarea#input') || document.querySelector('textarea');
+      if (!ta) return false;
+      ta.value = text;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     }, finalPrompt);
 
-    if (!success) throw new Error("Input field not found");
+    if (!injected) throw new Error("Prompt injection failed");
 
-    console.log("✅ Prompt injected successfully");
+    console.log("✅ Prompt injected");
 
-    // Generate button click
-    await page.waitForTimeout(3000);
-    await page.click('button:has-text("Generate"), button:has-text("Create"), button:has-text("Make")');
+    await page.waitForTimeout(5000);
 
-    console.log("⏳ Waiting for image...");
+    console.log("🔘 Clicking Generate button...");
+
+    // Better button click with fallback
+    const clicked = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const generateBtn = buttons.find(btn => {
+        const text = btn.textContent.toLowerCase();
+        return text.includes('generate') || text.includes('create') || text.includes('make');
+      });
+
+      if (generateBtn) {
+        generateBtn.scrollIntoView({ block: 'center' });
+        generateBtn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (!clicked) throw new Error("Generate button not found");
+
+    console.log("⏳ Waiting for image generation...");
 
     await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
       timeout: 150000 
@@ -75,13 +86,13 @@ async function generateImage(prompt, style = "none") {
 
     await browser.close();
 
-    if (!imageUrl) throw new Error("No image URL");
+    if (!imageUrl) throw new Error("No image URL found");
 
     return { success: true, imageUrl, prompt: finalPrompt };
 
   } catch (error) {
     if (browser) await browser.close().catch(() => {});
-    console.error("Generation error:", error.message);
+    console.error("❌ Generation error:", error.message);
     throw error;
   }
 }
@@ -108,7 +119,7 @@ app.get('/imagine', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API v4 Running'));
+app.get('/', (req, res) => res.send('✅ Perchance API v5 (Fixed Button Click)'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
