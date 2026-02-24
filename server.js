@@ -28,15 +28,33 @@ async function generateImage(prompt, style = "none") {
     });
 
     const page = await browser.newPage();
-    await page.goto('https://perchance.org/ai-text-to-image-generator', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    
+    // Page load with longer timeout
+    await page.goto('https://perchance.org/ai-text-to-image-generator', { 
+      waitUntil: 'domcontentloaded', 
+      timeout: 90000 
+    });
 
-    await page.waitForTimeout(8000); // সাইট লোড হতে সময় দাও
+    await page.waitForTimeout(10000); // 10 seconds extra wait for full load
 
-    await page.fill('textarea, input[type="text"]', finalPrompt);
+    // Specific selector + visibility check
+    const inputSelector = 'textarea#input';
+    await page.waitForSelector(inputSelector, { timeout: 30000, state: 'visible' });
 
-    await page.click('button:has-text("Generate"), button:has-text("Create")');
+    // Scroll + Click to focus
+    await page.locator(inputSelector).scrollIntoViewIfNeeded();
+    await page.locator(inputSelector).click();
+    
+    // Now fill
+    await page.locator(inputSelector).fill(finalPrompt);
 
-    await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { timeout: 120000 });
+    // Click Generate button
+    await page.click('button:has-text("Generate"), button:has-text("Create")', { timeout: 15000 });
+
+    // Wait for image
+    await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
+      timeout: 120000 
+    });
 
     const imageUrl = await page.evaluate(() => {
       const img = document.querySelector('img[src*="perchance.org"], img[src*="cdn"]');
@@ -49,6 +67,7 @@ async function generateImage(prompt, style = "none") {
 
   } catch (error) {
     if (browser) await browser.close().catch(() => {});
+    console.error("Generation error:", error.message);
     throw error;
   }
 }
@@ -67,17 +86,16 @@ app.get('/imagine', async (req, res) => {
     const result = await generateImage(prompt, style);
     res.json(result);
   } catch (error) {
-    console.error("Generation error:", error.message);
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Try again in 30 seconds (server busy)"
+      message: "Try again in 30 seconds (site slow)"
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance Playwright API is running!'));
+app.get('/', (req, res) => res.send('✅ Perchance API Running (Fixed Version)'));
 
 app.listen(PORT, () => {
-  console.log(`🚀 Playwright API running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
