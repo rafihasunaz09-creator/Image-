@@ -28,44 +28,37 @@ async function generateImage(prompt, style = "none") {
     });
 
     const page = await browser.newPage();
-    
-    console.log("🌐 Navigating to Perchance...");
+    console.log("🌐 Opening Perchance...");
+
     await page.goto('https://perchance.org/ai-text-to-image-generator', { 
       waitUntil: 'domcontentloaded', 
       timeout: 90000 
     });
 
-    await page.waitForTimeout(12000);
+    await page.waitForTimeout(15000);
 
+    // Prompt inject
     console.log("🔍 Injecting prompt...");
-    const injected = await page.evaluate((text) => {
+    await page.evaluate((text) => {
       const ta = document.querySelector('textarea#input') || document.querySelector('textarea');
-      if (!ta) return false;
-      ta.value = text;
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
-      ta.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
+      if (ta) {
+        ta.value = text;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }, finalPrompt);
-
-    if (!injected) throw new Error("Prompt injection failed");
-
-    console.log("✅ Prompt injected");
 
     await page.waitForTimeout(5000);
 
-    console.log("🔘 Clicking Generate button...");
-
-    // Better button click with fallback
+    // Click generate button
+    console.log("🔘 Clicking ✨ generate button...");
     const clicked = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const generateBtn = buttons.find(btn => {
-        const text = btn.textContent.toLowerCase();
-        return text.includes('generate') || text.includes('create') || text.includes('make');
-      });
-
-      if (generateBtn) {
-        generateBtn.scrollIntoView({ block: 'center' });
-        generateBtn.click();
+      const btn = Array.from(document.querySelectorAll('button')).find(b => 
+        b.textContent.toLowerCase().includes('generate')
+      );
+      if (btn) {
+        btn.scrollIntoView({ block: 'center' });
+        btn.click();
         return true;
       }
       return false;
@@ -73,26 +66,28 @@ async function generateImage(prompt, style = "none") {
 
     if (!clicked) throw new Error("Generate button not found");
 
-    console.log("⏳ Waiting for image generation...");
+    console.log("⏳ Waiting for image (max 3 minutes)...");
 
-    await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
-      timeout: 150000 
-    });
+    // Smart image detection (polling)
+    const imageUrl = await page.waitForFunction(() => {
+      const images = document.querySelectorAll('img[src*="perchance.org"], img[src*="cdn"]');
+      for (let img of images) {
+        if (img.src && img.src.length > 50) {
+          return img.src;
+        }
+      }
+      return null;
+    }, { timeout: 180000, polling: 2000 });
 
-    const imageUrl = await page.evaluate(() => {
-      const img = document.querySelector('img[src*="perchance.org"], img[src*="cdn"]');
-      return img ? img.src : null;
-    });
+    const finalUrl = await imageUrl.jsonValue();
 
     await browser.close();
 
-    if (!imageUrl) throw new Error("No image URL found");
-
-    return { success: true, imageUrl, prompt: finalPrompt };
+    return { success: true, imageUrl: finalUrl, prompt: finalPrompt };
 
   } catch (error) {
     if (browser) await browser.close().catch(() => {});
-    console.error("❌ Generation error:", error.message);
+    console.error("❌ Final Error:", error.message);
     throw error;
   }
 }
@@ -114,12 +109,12 @@ app.get('/imagine', async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Try again in 30 seconds"
+      message: "Site is very slow. Try again in 1 minute."
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API v5 (Fixed Button Click)'));
+app.get('/', (req, res) => res.send('✅ Perchance API v7 (Smart Image Detect)'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
