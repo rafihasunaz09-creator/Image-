@@ -4,31 +4,26 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const USER_KEY = "33835d1db14c9fa53abe785e983c2b3564356ed6004c5f4d6314adf430d94d59";
-
 const styles = {
-  realistic: "realistic photo, photorealistic, ultra detailed, 8k, sharp focus",
-  anime: "anime style, detailed anime art, vibrant colors, studio ghibli",
-  cartoon: "cartoon style, disney pixar style, vibrant, cute",
-  cyberpunk: "cyberpunk, neon lights, futuristic city, blade runner style",
-  oilpainting: "oil painting, masterpiece, artistic, renaissance",
-  pixel: "pixel art, 8bit, retro game style",
-  "3d": "3d render, octane render, cinematic lighting, unreal engine",
+  realistic: "realistic photo, photorealistic, ultra detailed, 8k",
+  anime: "anime style, detailed anime art, vibrant colors",
+  cartoon: "cartoon style, disney pixar style",
+  cyberpunk: "cyberpunk, neon lights, futuristic, blade runner",
   none: ""
 };
 
 app.get('/imagine', async (req, res) => {
   const prompt = req.query.prompt;
-  let style = (req.query.style || "none").toLowerCase();
+  const style = (req.query.style || "none").toLowerCase();
+  const userKey = req.query.userKey;
 
-  if (!prompt) {
-    return res.status(400).json({ success: false, error: "Prompt is required" });
-  }
+  if (!prompt) return res.status(400).json({ success: false, error: "Prompt missing" });
+  if (!userKey) return res.status(400).json({ success: false, error: "userKey missing (add &userKey=YOUR_NEW_KEY)" });
 
   const styleText = styles[style] || "";
   const finalPrompt = styleText ? `${prompt}, ${styleText}` : prompt;
 
-  console.log(`Generating: ${prompt} | Style: ${style}`);
+  console.log(`[NEW KEY] Generating: ${prompt} | Style: ${style}`);
 
   try {
     const payload = {
@@ -39,45 +34,34 @@ app.get('/imagine', async (req, res) => {
       guidanceScale: 7,
       channel: "ai-text-to-image-generator",
       subChannel: "public",
-      userKey: USER_KEY,
+      userKey: userKey,
       adAccessCode: "",
       requestId: Math.random().toString()
     };
 
-    const response = await axios.post(
-      "https://image-generation.perchance.org/api/generate",
-      payload,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
-          "Origin": "https://perchance.org",
-          "Referer": "https://perchance.org/ai-text-to-image-generator"
-        }
+    const response = await axios.post("https://image-generation.perchance.org/api/generate", payload, {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
+        "Origin": "https://perchance.org",
+        "Referer": "https://perchance.org/ai-text-to-image-generator"
       }
-    );
-
-    const imageUrl = response.data;   // Perchance সরাসরি image URL return করে
-
-    res.json({
-      success: true,
-      imageUrl: imageUrl,
-      prompt: finalPrompt,
-      style: style
     });
+
+    const imageUrl = response.data;
+
+    if (imageUrl && imageUrl.status === "invalid_key") {
+      return res.status(401).json({ success: false, error: "invalid_key", message: "Key expire হয়েছে। নতুন key দাও।" });
+    }
+
+    res.json({ success: true, imageUrl, prompt: finalPrompt, style });
 
   } catch (error) {
-    console.error("Error:", error.message);
-    res.status(500).json({
-      success: false,
-      error: "Generation failed",
-      message: "Try again in 10 seconds."
-    });
+    console.error(error.message);
+    res.status(500).json({ success: false, error: "Generation failed", message: "Try again or new key" });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance Fast API is running!'));
+app.get('/', (req, res) => res.send('✅ Perchance API Running (Dynamic Key)'));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Fast API running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
