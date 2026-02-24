@@ -9,7 +9,8 @@ const PORT = process.env.PORT || 3000;
 
 async function generateImage(prompt, style = "none", retryCount = 0) {
   const maxRetries = 2;
-  
+  let browser = null;
+
   const styles = {
     realistic: "realistic photo, photorealistic, ultra detailed, 8k",
     anime: "anime style, detailed anime art, vibrant colors",
@@ -22,33 +23,24 @@ async function generateImage(prompt, style = "none", retryCount = 0) {
   const finalPrompt = styleText ? `${prompt}, ${styleText}` : prompt;
 
   try {
-    const browser = await chromium.launch({ 
+    browser = await chromium.launch({ 
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     const page = await browser.newPage();
+    
     await page.goto('https://perchance.org/ai-text-to-image-generator', { 
       waitUntil: 'networkidle', 
       timeout: 45000 
     });
 
-    // আরও নির্ভরযোগ্য selectors
-    await page.waitForSelector('textarea, input[type="text"], [contenteditable="true"]', { timeout: 15000 });
-    await page.fill('textarea, input[type="text"], [contenteditable="true"]', finalPrompt);
+    await page.waitForSelector('textarea, input[type="text"]', { timeout: 15000 });
+    await page.fill('textarea, input[type="text"]', finalPrompt);
 
-    // Generate button (যেকোনো Generate বাটন)
-    await page.waitForSelector('button', { timeout: 10000 });
-    const buttons = await page.$$('button');
-    for (const btn of buttons) {
-      const text = await btn.textContent();
-      if (text && (text.includes("Generate") || text.includes("Create"))) {
-        await btn.click();
-        break;
-      }
-    }
+    // Generate button click
+    await page.click('button:has-text("Generate"), button:has-text("Create")');
 
-    // Image আসার জন্য লম্বা wait
     await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
       timeout: 120000 
     });
@@ -60,18 +52,19 @@ async function generateImage(prompt, style = "none", retryCount = 0) {
 
     await browser.close();
 
-    if (!imageUrl) throw new Error("No image URL found");
+    if (!imageUrl) throw new Error("No image found");
 
-    return { success: true, imageUrl, prompt: finalPrompt };
+    return { success: true, imageUrl, prompt: finalPrompt, style };
 
   } catch (error) {
-    await browser?.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
     
     if (retryCount < maxRetries) {
-      console.log(`Retry \( {retryCount + 1}/ \){maxRetries}...`);
+      console.log(`🔄 Retry \( {retryCount + 1}/ \){maxRetries} for prompt: ${prompt}`);
       return generateImage(prompt, style, retryCount + 1);
     }
 
+    console.error("Generation error:", error.message);
     throw error;
   }
 }
@@ -90,7 +83,6 @@ app.get('/imagine', async (req, res) => {
     const result = await generateImage(prompt, style);
     res.json(result);
   } catch (error) {
-    console.error("Generation error:", error.message);
     res.status(500).json({
       success: false,
       error: "Generation failed",
