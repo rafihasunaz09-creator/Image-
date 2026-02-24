@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/imagine.js",
+      "src": "api/**/*.js",
       "use": "@vercel/node"
     }
   ],
@@ -11,5 +11,11 @@
       "src": "/imagine",
       "dest": "/api/imagine.js"
     }
-  ]
+  ],
+  "functions": {
+    "api/imagine.js": {
+      "memory": 1024,
+      "maxDuration": 90
+    }
+  }
 }
