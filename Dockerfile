@@ -2,17 +2,15 @@ FROM mcr.microsoft.com/playwright:v1.50.0-jammy
 
 WORKDIR /app
 
-# Copy package files
+# Package files আগে copy
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Fixed: npm ci এর বদলে npm install
+RUN npm install --production
 
-# Copy all files
+# বাকি সব ফাইল copy
 COPY . .
 
-# Expose port
 EXPOSE 3000
 
-# Start command
 CMD ["npm", "start"]
