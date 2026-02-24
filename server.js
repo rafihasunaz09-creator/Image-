@@ -1,98 +1,83 @@
 const express = require('express');
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
-
-chromium.use(stealth);
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-async function generateImage(prompt, style = "none", retryCount = 0) {
-  const maxRetries = 2;
-  let browser = null;
+const USER_KEY = "33835d1db14c9fa53abe785e983c2b3564356ed6004c5f4d6314adf430d94d59";
 
-  const styles = {
-    realistic: "realistic photo, photorealistic, ultra detailed, 8k",
-    anime: "anime style, detailed anime art, vibrant colors",
-    cartoon: "cartoon style, disney pixar style",
-    cyberpunk: "cyberpunk, neon lights, futuristic, blade runner",
-    none: ""
-  };
-
-  const styleText = styles[style.toLowerCase()] || "";
-  const finalPrompt = styleText ? `${prompt}, ${styleText}` : prompt;
-
-  try {
-    browser = await chromium.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
-
-    const page = await browser.newPage();
-    
-    await page.goto('https://perchance.org/ai-text-to-image-generator', { 
-      waitUntil: 'networkidle', 
-      timeout: 45000 
-    });
-
-    await page.waitForSelector('textarea, input[type="text"]', { timeout: 15000 });
-    await page.fill('textarea, input[type="text"]', finalPrompt);
-
-    // Generate button click
-    await page.click('button:has-text("Generate"), button:has-text("Create")');
-
-    await page.waitForSelector('img[src*="perchance.org"], img[src*="cdn"]', { 
-      timeout: 120000 
-    });
-
-    const imageUrl = await page.evaluate(() => {
-      const img = document.querySelector('img[src*="perchance.org"], img[src*="cdn"]');
-      return img ? img.src : null;
-    });
-
-    await browser.close();
-
-    if (!imageUrl) throw new Error("No image found");
-
-    return { success: true, imageUrl, prompt: finalPrompt, style };
-
-  } catch (error) {
-    if (browser) await browser.close().catch(() => {});
-    
-    if (retryCount < maxRetries) {
-      console.log(`🔄 Retry \( {retryCount + 1}/ \){maxRetries} for prompt: ${prompt}`);
-      return generateImage(prompt, style, retryCount + 1);
-    }
-
-    console.error("Generation error:", error.message);
-    throw error;
-  }
-}
+const styles = {
+  realistic: "realistic photo, photorealistic, ultra detailed, 8k, sharp focus",
+  anime: "anime style, detailed anime art, vibrant colors, studio ghibli",
+  cartoon: "cartoon style, disney pixar style, vibrant, cute",
+  cyberpunk: "cyberpunk, neon lights, futuristic city, blade runner style",
+  oilpainting: "oil painting, masterpiece, artistic, renaissance",
+  pixel: "pixel art, 8bit, retro game style",
+  "3d": "3d render, octane render, cinematic lighting, unreal engine",
+  none: ""
+};
 
 app.get('/imagine', async (req, res) => {
   const prompt = req.query.prompt;
-  const style = req.query.style || "none";
+  let style = (req.query.style || "none").toLowerCase();
 
   if (!prompt) {
     return res.status(400).json({ success: false, error: "Prompt is required" });
   }
 
+  const styleText = styles[style] || "";
+  const finalPrompt = styleText ? `${prompt}, ${styleText}` : prompt;
+
   console.log(`Generating: ${prompt} | Style: ${style}`);
 
   try {
-    const result = await generateImage(prompt, style);
-    res.json(result);
+    const payload = {
+      prompt: finalPrompt,
+      negativePrompt: "",
+      seed: -1,
+      resolution: "768x768",
+      guidanceScale: 7,
+      channel: "ai-text-to-image-generator",
+      subChannel: "public",
+      userKey: USER_KEY,
+      adAccessCode: "",
+      requestId: Math.random().toString()
+    };
+
+    const response = await axios.post(
+      "https://image-generation.perchance.org/api/generate",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
+          "Origin": "https://perchance.org",
+          "Referer": "https://perchance.org/ai-text-to-image-generator"
+        }
+      }
+    );
+
+    const imageUrl = response.data;   // Perchance সরাসরি image URL return করে
+
+    res.json({
+      success: true,
+      imageUrl: imageUrl,
+      prompt: finalPrompt,
+      style: style
+    });
+
   } catch (error) {
+    console.error("Error:", error.message);
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Server busy or timeout. Try again in 20-30 seconds."
+      message: "Try again in 10 seconds."
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance AI API is running on Render!'));
+app.get('/', (req, res) => res.send('✅ Perchance Fast API is running!'));
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Fast API running on port ${PORT}`);
 });
