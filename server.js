@@ -35,13 +35,33 @@ async function generateImage(prompt, style = "none") {
       timeout: 90000 
     });
 
+    // Wait for the heavy iframes to fully render
     await page.waitForTimeout(15000);
 
+    console.log("🔍 Scanning frames for the generator...");
+    let targetFrame = null;
+    
+    // Iterate through all frames to find the one containing the textarea
+    for (const frame of page.frames()) {
+      try {
+        const hasTextarea = await frame.$('textarea');
+        if (hasTextarea) {
+          targetFrame = frame;
+          break;
+        }
+      } catch (e) {
+        // Ignore dead frames
+      }
+    }
+
+    if (!targetFrame) {
+      throw new Error("Could not find the generator iframe. The site layout might have changed.");
+    }
+
     console.log("🔍 Injecting prompt...");
-    await page.evaluate((text) => {
-      const frame = document.querySelector('iframe');
-      const doc = frame ? frame.contentDocument : document;
-      const ta = doc.querySelector('textarea#input') || doc.querySelector('textarea');
+    // Execute directly inside the isolated frame context
+    await targetFrame.evaluate((text) => {
+      const ta = document.querySelector('textarea');
       if (ta) {
         ta.value = text;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -52,10 +72,8 @@ async function generateImage(prompt, style = "none") {
     await page.waitForTimeout(5000);
 
     console.log("🔘 Clicking ✨ generate button...");
-    const clicked = await page.evaluate(() => {
-      const frame = document.querySelector('iframe');
-      const doc = frame ? frame.contentDocument : document;
-      const btn = Array.from(doc.querySelectorAll('button')).find(b => 
+    const clicked = await targetFrame.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => 
         b.textContent.toLowerCase().includes('generate')
       );
       if (btn) {
@@ -66,19 +84,15 @@ async function generateImage(prompt, style = "none") {
       return false;
     });
 
-    if (!clicked) throw new Error("Generate button not found");
+    if (!clicked) throw new Error("Generate button not found inside the frame");
 
     console.log("⏳ Waiting for image (max 3 minutes)...");
 
-    // The Fix: Playwright expects (pageFunction, arg, options). 
-    // We pass 'undefined' for arg to place the options object in the correct slot.
-    const imageUrlHandle = await page.waitForFunction(() => {
-      const frame = document.querySelector('iframe');
-      const doc = frame ? frame.contentDocument : document;
-      const images = doc.querySelectorAll('img');
-      
+    // Wait for the image inside the exact same frame
+    const imageUrlHandle = await targetFrame.waitForFunction(() => {
+      const images = document.querySelectorAll('img');
       for (let img of images) {
-        // Broadened search to catch blobs and base64 strings if CDNs change
+        // Filter out UI icons and grab the actual generated image
         if (img.src && img.src.length > 50 && !img.src.includes('icon')) {
           return img.src;
         }
@@ -116,14 +130,14 @@ app.get('/imagine', async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Site is very slow or image detection failed. Try again."
+      message: "Site layout changed or request timed out."
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API v7 (Fixed Timeout)'));
+app.get('/', (req, res) => res.send('✅ Perchance API v8 (Frame Context Engine)'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-      
+  
