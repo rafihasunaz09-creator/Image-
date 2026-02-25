@@ -37,10 +37,11 @@ async function generateImage(prompt, style = "none") {
 
     await page.waitForTimeout(15000);
 
-    // Prompt inject
     console.log("🔍 Injecting prompt...");
     await page.evaluate((text) => {
-      const ta = document.querySelector('textarea#input') || document.querySelector('textarea');
+      const frame = document.querySelector('iframe');
+      const doc = frame ? frame.contentDocument : document;
+      const ta = doc.querySelector('textarea#input') || doc.querySelector('textarea');
       if (ta) {
         ta.value = text;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -50,10 +51,11 @@ async function generateImage(prompt, style = "none") {
 
     await page.waitForTimeout(5000);
 
-    // Click generate button
     console.log("🔘 Clicking ✨ generate button...");
     const clicked = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => 
+      const frame = document.querySelector('iframe');
+      const doc = frame ? frame.contentDocument : document;
+      const btn = Array.from(doc.querySelectorAll('button')).find(b => 
         b.textContent.toLowerCase().includes('generate')
       );
       if (btn) {
@@ -68,18 +70,23 @@ async function generateImage(prompt, style = "none") {
 
     console.log("⏳ Waiting for image (max 3 minutes)...");
 
-    // Smart image detection (polling)
-    const imageUrl = await page.waitForFunction(() => {
-      const images = document.querySelectorAll('img[src*="perchance.org"], img[src*="cdn"]');
+    // The Fix: Playwright expects (pageFunction, arg, options). 
+    // We pass 'undefined' for arg to place the options object in the correct slot.
+    const imageUrlHandle = await page.waitForFunction(() => {
+      const frame = document.querySelector('iframe');
+      const doc = frame ? frame.contentDocument : document;
+      const images = doc.querySelectorAll('img');
+      
       for (let img of images) {
-        if (img.src && img.src.length > 50) {
+        // Broadened search to catch blobs and base64 strings if CDNs change
+        if (img.src && img.src.length > 50 && !img.src.includes('icon')) {
           return img.src;
         }
       }
       return null;
-    }, { timeout: 180000, polling: 2000 });
+    }, undefined, { timeout: 180000, polling: 2000 });
 
-    const finalUrl = await imageUrl.jsonValue();
+    const finalUrl = await imageUrlHandle.jsonValue();
 
     await browser.close();
 
@@ -109,13 +116,14 @@ app.get('/imagine', async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Generation failed",
-      message: "Site is very slow. Try again in 1 minute."
+      message: "Site is very slow or image detection failed. Try again."
     });
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API v7 (Smart Image Detect)'));
+app.get('/', (req, res) => res.send('✅ Perchance API v7 (Fixed Timeout)'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+      
