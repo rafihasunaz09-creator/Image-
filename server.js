@@ -35,13 +35,13 @@ async function generateImage(prompt, style = "none") {
       timeout: 90000 
     });
 
-    // Wait for the heavy iframes to fully render
+    // Wait for the iframes to fully render
     await page.waitForTimeout(15000);
 
     console.log("🔍 Scanning frames for the generator...");
     let targetFrame = null;
     
-    // Iterate through all frames to find the one containing the textarea
+    // Find the frame holding the textarea
     for (const frame of page.frames()) {
       try {
         const hasTextarea = await frame.$('textarea');
@@ -50,7 +50,7 @@ async function generateImage(prompt, style = "none") {
           break;
         }
       } catch (e) {
-        // Ignore dead frames
+        // Ignore errors from dead or cross-origin blocked frames
       }
     }
 
@@ -59,7 +59,6 @@ async function generateImage(prompt, style = "none") {
     }
 
     console.log("🔍 Injecting prompt...");
-    // Execute directly inside the isolated frame context
     await targetFrame.evaluate((text) => {
       const ta = document.querySelector('textarea');
       if (ta) {
@@ -88,12 +87,11 @@ async function generateImage(prompt, style = "none") {
 
     console.log("⏳ Waiting for image (max 3 minutes)...");
 
-    // Wait for the image inside the exact same frame
+    // Strictly check for the actual image URL holding 'downloadTemporaryImage'
     const imageUrlHandle = await targetFrame.waitForFunction(() => {
       const images = document.querySelectorAll('img');
       for (let img of images) {
-        // Filter out UI icons and grab the actual generated image
-        if (img.src && img.src.length > 50 && !img.src.includes('icon')) {
+        if (img.src && img.src.includes('downloadTemporaryImage')) {
           return img.src;
         }
       }
@@ -135,9 +133,9 @@ app.get('/imagine', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Perchance API v8 (Frame Context Engine)'));
+app.get('/', (req, res) => res.send('✅ Perchance API v9 (Strict Image Target)'));
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-  
+    
